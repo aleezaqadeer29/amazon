@@ -11,21 +11,29 @@ from webdriver_manager.chrome import ChromeDriverManager
 
 
 def start_browser():
-    """Chrome browser setup in Headless Mode (No UI pop-up)."""
+    """Chrome browser setup in Headless Mode with Anti-Bot detection flags."""
     options = webdriver.ChromeOptions()
     
-    # ALWAYS RUN IN HEADLESS MODE (Browser screen open nahi hogi)
+    # Headless Mode (Browser UI visible nahi hoga)
     options.add_argument("--headless=new")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--window-size=1920,1080")
     
-    # Common Chrome flags
-    options.add_argument("--disable-gpu")
-    options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+    # Anti-Bot Detection Flags (Amazon Block/Captcha Se Bachne Ke Liye)
+    options.add_argument("--disable-blink-features=AutomationControlled")
+    options.add_experimental_option("excludeSwitches", ["enable-automation"])
+    options.add_experimental_option('useAutomationExtension', False)
+    
+    # Real Browser User-Agent
+    options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
     
     service = Service(ChromeDriverManager().install())
     driver = webdriver.Chrome(service=service, options=options)
+    
+    # Extra check to hide webdriver flag
+    driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+    
     return driver
 
 
@@ -33,8 +41,8 @@ def search_product(driver, product_name):
     """Amazon open karke product search karta hai."""
     driver.get("https://www.amazon.com")
 
-    # Search box load hone ka wait
-    wait = WebDriverWait(driver, 15)
+    # Search box load hone ka wait (Timeout increased for cloud runner)
+    wait = WebDriverWait(driver, 25)
     search_box = wait.until(
         EC.presence_of_element_located((By.ID, "twotabsearchtextbox"))
     )
@@ -43,28 +51,28 @@ def search_product(driver, product_name):
     search_box.clear()
     search_box.send_keys(product_name)
 
-    # Search button click karna (ya Enter dabana)
+    # Search button click karna (Enter press karna)
     search_box.send_keys(Keys.ENTER)
 
     # Results page load hone ka wait
     wait.until(
         EC.presence_of_element_located((By.CSS_SELECTOR, "div.s-main-slot"))
     )
-    time.sleep(2)  # extra safety wait
+    time.sleep(3)  # Extra safety wait
 
 
-def scroll_page(driver, scroll_times=5):
+def scroll_page(driver, scroll_times=3):
     """Page ko scroll karta hai taake zyada products load hon."""
     for i in range(scroll_times):
         driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-        time.sleep(2)  # naye elements load hone ka time dena
+        time.sleep(2)  # Elements load hone ka time
 
 
 def extract_products(driver):
     """Har product ka naam, price, rating extract karta hai."""
     products_data = []
 
-    # Amazon har search result ko is container mein rakhta hai
+    # Amazon search result items container
     items = driver.find_elements(By.CSS_SELECTOR, "div.s-result-item[data-component-type='s-search-result']")
 
     for item in items:
@@ -112,12 +120,15 @@ def save_to_csv(products_data, filename="amazon_products.csv"):
 
 
 def main():
-    # Fallback to default if no input available (e.g., CI/CD)
+    # Pipeline mode check
     if os.environ.get("HEADLESS") == "true":
         product_name = "laptop"
-        print(f"Running automatically: searching for '{product_name}'")
+        print(f"Running automatically in CI/CD Pipeline: Searching for '{product_name}'")
     else:
-        product_name = input("Which product do you want to search for? ")
+        try:
+            product_name = input("Which product do you want to search for? ")
+        except EOFError:
+            product_name = "laptop"
 
     driver = start_browser()
 
@@ -128,7 +139,7 @@ def main():
         save_to_csv(products_data)
 
     finally:
-        driver.quit()  # Browser ko close karna zaroori hai
+        driver.quit()  # Browser session close karna
 
 
 if __name__ == "__main__":
